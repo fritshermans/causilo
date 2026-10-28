@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -14,15 +15,18 @@ REPOSITORY = "nums-ai/causilo"
 RELEASE_COMMIT = "94f2bd91db0737d4da59f347910662905ecb5a09"
 
 
-def load_checkpoint(directory: Path) -> Model:
-    """Validate the format and config hash, then materialize an evaluation model."""
-    encoded = (directory / "config.json").read_bytes()
+def load_checkpoint(weights: Path) -> Model:
+    """Validate the format and config hash, then materialize an evaluation model.
+
+    The configuration is read from ``config.json`` beside the weights file.
+    """
+    encoded = weights.with_name("config.json").read_bytes()
     record = json.loads(encoded)
     expected = {"architecture": "causilo-v1.0", "format_version": 1, "config_version": 1}
     if any(record.get(key) != value for key, value in expected.items()):
         raise ValueError("Unsupported model configuration")
     config = ModelConfig(**record["model"])
-    with safe_open(directory / "model.safetensors", framework="pt") as artifact:
+    with safe_open(weights, framework="pt") as artifact:
         metadata = artifact.metadata()
         required = {
             "architecture": "causilo-v1.0",
@@ -48,7 +52,30 @@ def load_pretrained_model(task: str) -> Model:
         revision=RELEASE_COMMIT,
         allow_patterns=[f"{folder}/config.json", f"{folder}/model.safetensors"],
     )
-    model = load_checkpoint(Path(root) / folder)
+    model = load_checkpoint(Path(root) / folder / "model.safetensors")
     if model.config.task != task:
         raise ValueError("The official checkpoint has the wrong prediction task")
     return model
+
+
+def load_local_model(task: str, path) -> Model:
+    """Load a manually downloaded weights file, or a directory holding one, without the Hub."""
+    weights = Path(os.fspath(path)).expanduser()
+    if weights.is_dir():
+        weights = weights / "model.safetensors"
+    if not weights.is_file():
+        raise FileNotFoundError(f"Checkpoint file not found: {weights}")
+    config = weights.with_name("config.json")
+    if not config.is_file():
+        raise FileNotFoundError(f"Checkpoint configuration not found beside the weights: {config}")
+    model = load_checkpoint(weights)
+    if model.config.task != task:
+        raise ValueError(f"The checkpoint at {weights} is for {model.config.task}, not {task}")
+    return model
+
+
+def load_model(task: str, checkpoint_path=None) -> Model:
+    """Load a local checkpoint when a path is given, otherwise the pinned official one."""
+    if checkpoint_path is None:
+        return load_pretrained_model(task)
+    return load_local_model(task, checkpoint_path)

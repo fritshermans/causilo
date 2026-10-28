@@ -130,8 +130,8 @@ def import_estimator(estimator, saved: dict) -> None:
         return
     # Auto resolves again on the current host; an explicit unavailable device
     # is rejected by Engine before any context is installed.
-    engine = Engine(saved["task"], estimator.device)
-    engine.model = checkpoints.load_pretrained_model(engine.task).to(engine.device)
+    engine = Engine(saved["task"], estimator.device, estimator.checkpoint_path)
+    engine.model = checkpoints.load_model(engine.task, engine.checkpoint_path).to(engine.device)
     if engine.model.config.record() != saved["model_config"]:
         raise ValueError("Saved cache does not match the model shape")
     state = saved["fitted"]

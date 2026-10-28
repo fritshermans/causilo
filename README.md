@@ -18,6 +18,14 @@ pip install causilo
 
 The first fit automatically downloads and caches the task's [checkpoint](https://huggingface.co/nums-ai/causilo). `device="auto"` uses CUDA when available, otherwise CPU. Set `device="mps"` explicitly to use MPS on macOS.
 
+To use a manually downloaded checkpoint, for example on a machine without internet access, pass its
+weights file. The task's `config.json` must sit in the same directory:
+
+```python
+classifier = CausiloClassifier(checkpoint_path="causilo/classifier/model.safetensors")
+regressor = CausiloRegressor(checkpoint_path="causilo/regressor")  # a directory also works
+```
+
 ## Quick start
 
 ```python

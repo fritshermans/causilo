@@ -356,3 +356,52 @@ def test_restore_rejects_dependency_mismatch_before_loading_weights(dependency, 
     )
     with pytest.raises(ValueError, match="dependency versions"):
         CausiloClassifier().__setstate__(saved)
+
+
+def official_weights(task):
+    folder = "classifier" if task == "classification" else "regressor"
+    root = checkpoints.snapshot_download(
+        checkpoints.REPOSITORY,
+        revision=checkpoints.RELEASE_COMMIT,
+        allow_patterns=[f"{folder}/config.json", f"{folder}/model.safetensors"],
+    )
+    return Path(root) / folder / "model.safetensors"
+
+
+@pytest.mark.parametrize(
+    "estimator_type, task", [(CausiloClassifier, "classification"), (CausiloRegressor, "regression")]
+)
+@pytest.mark.parametrize("as_directory", [False, True])
+def test_local_checkpoint_matches_official_and_restores(
+    estimator_type, task, as_directory, tmp_path, monkeypatch
+):
+    weights = official_weights(task)
+    for name in ("config.json", "model.safetensors"):
+        (tmp_path / name).symlink_to(weights.with_name(name).resolve())
+    rng = np.random.default_rng(5)
+    table = rng.normal(size=(30, 4))
+    target = np.arange(30) % 3
+    expected = estimator_type(n_estimators=1, device="cpu").fit(table, target).predict(table[:5])
+    monkeypatch.setattr(checkpoints, "snapshot_download", lambda *a, **k: pytest.fail("Used the Hub"))
+    path = tmp_path if as_directory else str(tmp_path / "model.safetensors")
+    model = estimator_type(n_estimators=1, device="cpu", checkpoint_path=path).fit(table, target)
+    np.testing.assert_array_equal(expected, model.predict(table[:5]))
+    restored = pickle.loads(pickle.dumps(model))
+    assert restored.checkpoint_path == path
+    np.testing.assert_array_equal(expected, restored.predict(table[:5]))
+
+
+def test_local_checkpoint_errors(tmp_path):
+    table = np.arange(30).reshape(10, 3)
+    target = np.arange(10) % 2
+    with pytest.raises(FileNotFoundError, match="Checkpoint file not found"):
+        CausiloClassifier(device="cpu", checkpoint_path=tmp_path / "missing.safetensors").fit(table, target)
+    weights = official_weights("regression")
+    (tmp_path / "model.safetensors").symlink_to(weights.resolve())
+    with pytest.raises(FileNotFoundError, match="configuration not found"):
+        CausiloRegressor(device="cpu", checkpoint_path=tmp_path).fit(table, target)
+    (tmp_path / "config.json").symlink_to(weights.with_name("config.json").resolve())
+    with pytest.raises(ValueError, match="for regression, not classification"):
+        CausiloClassifier(device="cpu", checkpoint_path=tmp_path).fit(table, target)
+    with pytest.raises(ValueError, match="checkpoint_path must be"):
+        CausiloClassifier(device="cpu", checkpoint_path=3).fit(table, target)
