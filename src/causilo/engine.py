@@ -1,5 +1,6 @@
 """Connect fixed pretrained weights to fitted data, caches, and ensemble outputs."""
 
+import os
 from dataclasses import dataclass, replace
 from numbers import Integral
 
@@ -67,9 +68,13 @@ class FitState:
 class Engine:
     """Own one task/device model and replace its training context on each fit."""
 
-    def __init__(self, task: str, device: str) -> None:
+    def __init__(self, task: str, device: str, checkpoint_path=None) -> None:
+        if checkpoint_path is not None and not isinstance(checkpoint_path, (str, os.PathLike)):
+            raise ValueError("checkpoint_path must be None or a path")
         self.task = task
         self.device_request = device
+        self.checkpoint_path = checkpoint_path
+        self.checkpoint = None
         self.device = resolve_device(device)
         self.model = None
         self.state: FitState | None = None
@@ -94,7 +99,9 @@ class Engine:
             if not isinstance(value, (bool, np.bool_)):
                 raise ValueError(f"{name} must be a Boolean")
         if self.model is None:
-            self.model = checkpoints.load_pretrained_model(self.task).to(self.device)
+            model, checkpoint = checkpoints.load_model(self.task, self.checkpoint_path)
+            self.model = model.to(self.device)
+            self.checkpoint = checkpoint
         prepared = PreparedDataset.prepare(
             table,
             targets,

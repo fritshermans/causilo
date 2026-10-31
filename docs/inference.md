@@ -56,4 +56,36 @@ intermediate CPU offloading is not supported.
 
 ## Restoring a fitted estimator
 
-With `device="auto"`, restoration selects an available device again. An explicitly configured device must be available. Saved state includes fitted preprocessing and optional attention caches, while pretrained weights are loaded from the pinned checkpoint. Use matching Causilo and dependency versions, including the Python major/minor version.
+With `device="auto"`, restoration selects an available device again. An explicitly configured device must be available. Saved state includes fitted preprocessing and optional attention caches, while weights are loaded from the checkpoint used during fit. Use matching Causilo and dependency versions, including the Python major/minor version.
+
+## Local checkpoints
+
+By default, estimators download and cache the pinned official checkpoint. To use
+local weights without contacting Hugging Face, pass `checkpoint_path`:
+
+```python
+from causilo import CausiloClassifier, CausiloRegressor
+
+classifier = CausiloClassifier(checkpoint_path="causilo/classifier/model.safetensors")
+regressor = CausiloRegressor(checkpoint_path="causilo/regressor")
+```
+
+The argument accepts a string or `pathlib.Path` pointing to a weights file or a
+directory containing `model.safetensors`. Its matching `config.json` must be in
+the same directory. For offline use, copy both files from the task's folder in
+the [model repository](https://huggingface.co/nums-ai/causilo) to the target machine.
+Compatible custom weights are also supported: their configuration, tensor names
+and shapes, and safetensors metadata must follow the Causilo checkpoint format.
+Construction and sklearn cloning do not read files; loading happens during fit.
+
+A saved fitted estimator records the absolute local path and a digest of the
+configuration and weights. Restoration requires the same files at that path and
+rejects changed contents before reusing fitted context or attention caches.
+Changing the working directory does not change the stored fitted source. The
+digest checks identity, not whether the weights are an official release.
+
+Changing `checkpoint_path` with `set_params` takes effect on the next fit. Until
+then, prediction and saved fitted state use the previously loaded weights. Keep
+local checkpoint files unchanged while using a fitted estimator; to load updated
+weights at the same path, construct a new estimator. Relocating the files for
+restoration is not supported by this interface.

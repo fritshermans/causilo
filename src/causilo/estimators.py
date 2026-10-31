@@ -16,8 +16,12 @@ def fit_adapter(estimator, X, y, task):
     engine = getattr(estimator, "_engine", None)
     if engine is not None:
         engine.state = None
-    if engine is None or engine.device_request != estimator.device:
-        engine = Engine(task, estimator.device)
+    if (
+        engine is None
+        or engine.device_request != estimator.device
+        or engine.checkpoint_path != estimator.checkpoint_path
+    ):
+        engine = Engine(task, estimator.device, estimator.checkpoint_path)
         estimator._engine = engine
     engine.fit(
         X,
@@ -66,6 +70,9 @@ class CausiloClassifier(ClassifierMixin, BaseEstimator):
         Precompute attention context during fit, retaining it on the device.
     retain_preprocessing : bool, default=True
         Keep transformed training tables instead of recomputing them for prediction.
+    checkpoint_path : str or path-like, default=None
+        Manually downloaded classifier ``model.safetensors`` (or its directory), with
+        ``config.json`` beside it. None downloads the pinned checkpoint from the Hub.
 
     Attributes
     ----------
@@ -91,12 +98,14 @@ class CausiloClassifier(ClassifierMixin, BaseEstimator):
         device: str = "auto",
         use_kv_cache: bool = False,
         retain_preprocessing: bool = True,
+        checkpoint_path=None,
     ):
         self.n_estimators = n_estimators
         self.random_state = random_state
         self.device = device
         self.use_kv_cache = use_kv_cache
         self.retain_preprocessing = retain_preprocessing
+        self.checkpoint_path = checkpoint_path
 
     def fit(self, X, y):
         """Prepare a context from X (rows, features) and y (rows,); return self.
@@ -133,6 +142,9 @@ class CausiloRegressor(RegressorMixin, BaseEstimator):
         Precompute and retain attention context during fit for repeated prediction.
     retain_preprocessing : bool, default=True
         Retain transformed training tables; encoded training data is always kept.
+    checkpoint_path : str or path-like, default=None
+        Manually downloaded regressor ``model.safetensors`` (or its directory), with
+        ``config.json`` beside it. None downloads the pinned checkpoint from the Hub.
 
     Fitted attributes are n_features_in_ and, for DataFrames with string column
     names, feature_names_in_. Change settings before fit or refit to apply them.
@@ -152,12 +164,14 @@ class CausiloRegressor(RegressorMixin, BaseEstimator):
         device: str = "auto",
         use_kv_cache: bool = False,
         retain_preprocessing: bool = True,
+        checkpoint_path=None,
     ):
         self.n_estimators = n_estimators
         self.random_state = random_state
         self.device = device
         self.use_kv_cache = use_kv_cache
         self.retain_preprocessing = retain_preprocessing
+        self.checkpoint_path = checkpoint_path
 
     def fit(self, X, y):
         """Prepare X (rows, features) and finite y (rows,) without weight updates.
