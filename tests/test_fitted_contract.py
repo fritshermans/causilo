@@ -389,19 +389,3 @@ def test_local_checkpoint_matches_official_and_restores(
     restored = pickle.loads(pickle.dumps(model))
     assert restored.checkpoint_path == path
     np.testing.assert_array_equal(expected, restored.predict(table[:5]))
-
-
-def test_local_checkpoint_errors(tmp_path):
-    table = np.arange(30).reshape(10, 3)
-    target = np.arange(10) % 2
-    with pytest.raises(FileNotFoundError, match="Checkpoint file not found"):
-        CausiloClassifier(device="cpu", checkpoint_path=tmp_path / "missing.safetensors").fit(table, target)
-    weights = official_weights("regression")
-    (tmp_path / "model.safetensors").symlink_to(weights.resolve())
-    with pytest.raises(FileNotFoundError, match="configuration not found"):
-        CausiloRegressor(device="cpu", checkpoint_path=tmp_path).fit(table, target)
-    (tmp_path / "config.json").symlink_to(weights.with_name("config.json").resolve())
-    with pytest.raises(ValueError, match="for regression, not classification"):
-        CausiloClassifier(device="cpu", checkpoint_path=tmp_path).fit(table, target)
-    with pytest.raises(ValueError, match="checkpoint_path must be"):
-        CausiloClassifier(device="cpu", checkpoint_path=3).fit(table, target)

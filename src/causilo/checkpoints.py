@@ -1,8 +1,7 @@
-"""Load pinned safetensors weights and verify their task/configuration pairing."""
+"""Load official or local safetensors weights and verify their configuration."""
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 import torch
@@ -58,9 +57,20 @@ def load_pretrained_model(task: str) -> Model:
     return model
 
 
-def load_local_model(task: str, path) -> Model:
-    """Load a manually downloaded weights file, or a directory holding one, without the Hub."""
-    weights = Path(os.fspath(path)).expanduser()
+def checkpoint_digest(weights: Path) -> str:
+    """Identify a local configuration/weights pair without retaining its file bytes."""
+    digest = hashlib.sha256(weights.with_name("config.json").read_bytes())
+    with weights.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_model(task: str, checkpoint_path=None, *, expected_digest=None) -> tuple[Model, dict | None]:
+    """Return the model and its local source, or None for the pinned Hub source."""
+    if checkpoint_path is None:
+        return load_pretrained_model(task), None
+    weights = Path(checkpoint_path).expanduser().absolute()
     if weights.is_dir():
         weights = weights / "model.safetensors"
     if not weights.is_file():
@@ -68,14 +78,10 @@ def load_local_model(task: str, path) -> Model:
     config = weights.with_name("config.json")
     if not config.is_file():
         raise FileNotFoundError(f"Checkpoint configuration not found beside the weights: {config}")
+    digest = checkpoint_digest(weights)
+    if expected_digest is not None and digest != expected_digest:
+        raise ValueError("Local checkpoint differs from the weights used to fit the saved estimator")
     model = load_checkpoint(weights)
     if model.config.task != task:
         raise ValueError(f"The checkpoint at {weights} is for {model.config.task}, not {task}")
-    return model
-
-
-def load_model(task: str, checkpoint_path=None) -> Model:
-    """Load a local checkpoint when a path is given, otherwise the pinned official one."""
-    if checkpoint_path is None:
-        return load_pretrained_model(task)
-    return load_local_model(task, checkpoint_path)
+    return model, {"path": str(weights), "digest": digest}

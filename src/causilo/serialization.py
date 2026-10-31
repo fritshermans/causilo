@@ -92,7 +92,7 @@ def transfer_state(value, device, *, clone: bool = False, dtype=None):
 
 
 def export_estimator(estimator) -> dict:
-    """Return a versioned fitted payload; identify weights by revision rather than copying them."""
+    """Return fitted context and its weight identity without copying model weights."""
     from . import __version__
 
     engine = getattr(estimator, "_engine", None)
@@ -106,6 +106,7 @@ def export_estimator(estimator) -> dict:
         "schema": STATE_SCHEMA,
         "dependencies": runtime_versions(),
         "revision": checkpoints.RELEASE_COMMIT,
+        "checkpoint": engine.checkpoint.copy() if state is not None and engine.checkpoint else None,
         "parameters": estimator.get_params(deep=False),
         "task": engine.task if engine is not None else None,
         "model_config": engine.model.config.record()
@@ -125,13 +126,22 @@ def import_estimator(estimator, saved: dict) -> None:
         raise ValueError("Restore requires matching Python and dependency versions")
     if saved["revision"] != checkpoints.RELEASE_COMMIT:
         raise ValueError("Saved state belongs to a different pretrained checkpoint")
-    estimator.__dict__.update(saved["parameters"])
+    estimator.__dict__.update({"checkpoint_path": None, **saved["parameters"]})
     if saved["fitted"] is None:
         return
+    if "checkpoint" not in saved and estimator.checkpoint_path is not None:
+        raise ValueError("Saved local checkpoint is missing its fitted weight identity")
     # Auto resolves again on the current host; an explicit unavailable device
     # is rejected by Engine before any context is installed.
-    engine = Engine(saved["task"], estimator.device, estimator.checkpoint_path)
-    engine.model = checkpoints.load_model(engine.task, engine.checkpoint_path).to(engine.device)
+    # Fitted context belongs to the source used during fit, even if set_params
+    # selected a different source for the next fit. Older payloads used the Hub.
+    checkpoint = saved.get("checkpoint")
+    path = checkpoint["path"] if checkpoint is not None else None
+    engine = Engine(saved["task"], estimator.device, path)
+    model, engine.checkpoint = checkpoints.load_model(
+        engine.task, path, expected_digest=checkpoint["digest"] if checkpoint is not None else None,
+    )
+    engine.model = model.to(engine.device)
     if engine.model.config.record() != saved["model_config"]:
         raise ValueError("Saved cache does not match the model shape")
     state = saved["fitted"]
